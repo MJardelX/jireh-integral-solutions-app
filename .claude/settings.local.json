@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "PowerShell(New-Item *)",
-      "Bash(dir \"c:\\\\Users\\\\jarde\\\\Documents\\\\jireh-app\\\\src\\\\context\")"
+      "Bash(dir \"c:\\\\Users\\\\jarde\\\\Documents\\\\jireh-app\\\\src\\\\context\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\jarde\\\\Documents\\\\jireh-app\\\\src\" -Recurse -File)",
+      "Bash(Select-Object -First 30)",
+      "Bash(find c:\\\\\\\\Users\\\\\\\\jarde\\\\\\\\Documents\\\\\\\\jireh-app\\\\\\\\src -type f -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.jsx\" -o -name \"*.js\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\({...p.dependencies,...p.devDependencies}\\).filter\\(k=>k.includes\\('xlsx'\\)||k.includes\\('sheet'\\)\\)\\)\\)\")"
     ]
   }
 }

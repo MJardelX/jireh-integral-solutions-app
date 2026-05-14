@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  setRefreshCookie(response, refreshToken);
+  setRefreshCookie(response, refreshToken, false);
 
   return response;
 }

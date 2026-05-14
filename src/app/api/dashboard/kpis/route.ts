@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import type { DashboardData, MonthlyPoint, ClientAlert } from '@/types/dashboard';
@@ -9,14 +10,19 @@ export async function GET(request: NextRequest) {
   const db = createAdminClient();
 
   // Date helpers
-  const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const now              = new Date();
+  const firstOfMonth     = new Date(now.getFullYear(), now.getMonth(), 1);
   const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const currentMonthStr = firstOfMonth.toISOString().split('T')[0];   // 'YYYY-MM-01'
-  const lastMonthStr    = firstOfLastMonth.toISOString().split('T')[0];
+  const firstOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const currentMonthStr  = firstOfMonth.toISOString().split('T')[0];
+  const lastMonthStr     = firstOfLastMonth.toISOString().split('T')[0];
+  const nextMonthStr     = firstOfNextMonth.toISOString().split('T')[0];
 
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const sixMonthsAgoStr = sixMonthsAgo.toISOString().split('T')[0];
+  // Year for the trend chart (defaults to current year)
+  const { searchParams } = new URL(request.url);
+  const trendYear      = Math.max(2020, parseInt(searchParams.get('year') ?? String(now.getFullYear()), 10));
+  const trendYearStart = `${trendYear}-01-01`;
+  const trendYearEnd   = `${trendYear + 1}-01-01`;
 
   // Run all queries in parallel
   const [
@@ -29,8 +35,9 @@ export async function GET(request: NextRequest) {
     { count: cancelledContracts },
     { data: contractPrices },
     { data: currentMonthInvoices },
-    { data: lastMonthInvoices },
-    { data: trendInvoices },
+    { data: currentMonthPayments },
+    { data: lastMonthPayments },
+    { data: trendPayments },
     { data: recentPaymentsRaw },
     { data: overdueRaw },
     { data: clientPaymentsRaw },
@@ -52,22 +59,28 @@ export async function GET(request: NextRequest) {
       .select('special_price, service_plans(price)')
       .eq('status', 'active'),
 
-    // Current month invoices
+    // Current month invoices (for invoice status chart only)
     db.from('invoices')
       .select('status, amount')
       .eq('reference_month', currentMonthStr),
 
-    // Last month invoices (for revenue trend)
-    db.from('invoices')
-      .select('amount')
-      .eq('reference_month', lastMonthStr)
-      .neq('status', 'cancelled'),
+    // Payments received this month (real cash collected)
+    db.from('payments')
+      .select('total_amount')
+      .gte('payment_date', currentMonthStr)
+      .lt('payment_date', nextMonthStr),
 
-    // 6-month trend
-    db.from('invoices')
-      .select('reference_month, amount')
-      .gte('reference_month', sixMonthsAgoStr)
-      .neq('status', 'cancelled'),
+    // Payments received last month (for trend comparison)
+    db.from('payments')
+      .select('total_amount')
+      .gte('payment_date', lastMonthStr)
+      .lt('payment_date', currentMonthStr),
+
+    // Full-year payments trend for selected year
+    db.from('payments')
+      .select('payment_date, total_amount')
+      .gte('payment_date', trendYearStart)
+      .lt('payment_date', trendYearEnd),
 
     // Recent payments with client name
     db.from('payments')
@@ -110,20 +123,22 @@ export async function GET(request: NextRequest) {
   const billable = stats.paidAmount + stats.pendingAmount + stats.overdueAmount;
   const collectionRate = billable > 0 ? (stats.paidAmount / billable) * 100 : 0;
 
-  const currentMonthRevenue = billable;
-  const lastMonthRevenue = (lastMonthInvoices ?? [])
-    .reduce((s, i: any) => s + Number(i.amount), 0);
+  // Revenue = actual payments received (not invoice amounts)
+  const currentMonthRevenue = (currentMonthPayments ?? [])
+    .reduce((s: number, p: any) => s + Number(p.total_amount), 0);
+  const lastMonthRevenue = (lastMonthPayments ?? [])
+    .reduce((s: number, p: any) => s + Number(p.total_amount), 0);
 
-  // ── 6-month trend ─────────────────────────────────────────────────────────
+  // ── Annual trend (12 months of actual payments received) ────────────────────
   const monthMap = new Map<string, number>();
-  for (const inv of trendInvoices ?? []) {
-    const key = (inv.reference_month as string).substring(0, 7);
-    monthMap.set(key, (monthMap.get(key) ?? 0) + Number(inv.amount));
+  for (const p of trendPayments ?? []) {
+    const key = (p.payment_date as string).substring(0, 7);
+    monthMap.set(key, (monthMap.get(key) ?? 0) + Number(p.total_amount));
   }
 
-  const monthlyTrend: MonthlyPoint[] = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const monthlyTrend: MonthlyPoint[] = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(trendYear, i, 1);
+    const key = `${trendYear}-${String(i + 1).padStart(2, '0')}`;
     return {
       month: key,
       label: d.toLocaleDateString('en-US', { month: 'short' }),
@@ -215,9 +230,6 @@ export async function GET(request: NextRequest) {
     },
     invoices: {
       ...stats,
-      // Use all-time overdue data (overdueRaw spans all months, not just current)
-      overdue:       overdueRaw?.length ?? 0,
-      overdueAmount: (overdueRaw ?? []).reduce((s, inv: any) => s + Number(inv.amount), 0),
       collectionRate: Math.round(collectionRate * 10) / 10,
     },
     contracts: {

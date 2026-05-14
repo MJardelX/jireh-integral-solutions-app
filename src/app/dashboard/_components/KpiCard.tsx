@@ -13,12 +13,12 @@ interface KpiCardProps {
   loading?: boolean;
 }
 
-const accentStyles: Record<Accent, { icon: string; value: string }> = {
-  orange: { icon: 'bg-[#dd6900]/15 text-[#dd6900]',  value: 'text-[#dd6900]' },
-  gold:   { icon: 'bg-[#e8c833]/15 text-[#e8c833]',  value: 'text-[#e8c833]' },
-  green:  { icon: 'bg-[#7f9d32]/15 text-[#7f9d32]',  value: 'text-[#7f9d32]' },
-  red:    { icon: 'bg-[#cf4528]/15 text-[#cf4528]',   value: 'text-[#cf4528]' },
-  blue:   { icon: 'bg-[#3f6a8d]/15 text-[#3f6a8d]',  value: 'text-[#3f6a8d]' },
+const accentStyles: Record<Accent, { icon: string; value: string; bar: string }> = {
+  orange: { icon: 'bg-[#dd6900]/15 text-[#dd6900]', value: 'text-[#dd6900]', bar: 'bg-[#dd6900]' },
+  gold:   { icon: 'bg-[#e8c833]/15 text-[#e8c833]', value: 'text-[#e8c833]', bar: 'bg-[#e8c833]' },
+  green:  { icon: 'bg-[#7f9d32]/15 text-[#7f9d32]', value: 'text-[#7f9d32]', bar: 'bg-[#7f9d32]' },
+  red:    { icon: 'bg-[#cf4528]/15 text-[#cf4528]',  value: 'text-[#cf4528]', bar: 'bg-[#cf4528]' },
+  blue:   { icon: 'bg-[#3f6a8d]/15 text-[#3f6a8d]', value: 'text-[#3f6a8d]', bar: 'bg-[#3f6a8d]' },
 };
 
 export function KpiCard({
@@ -40,10 +40,14 @@ export function KpiCard({
   return (
     <div
       className={cn(
-        'relative flex flex-col gap-4 rounded-2xl border border-border bg-popover p-5 transition-shadow hover:shadow-lg',
+        'relative flex flex-col gap-4 rounded-2xl border border-border bg-popover p-5 overflow-hidden',
+        'transition-all duration-200 hover:-translate-y-1 hover:shadow-xl',
         alert && 'border-[#cf4528]/40 shadow-[0_0_24px_rgba(207,69,40,0.12)]'
       )}
     >
+      {/* Top accent bar */}
+      <div className={cn('absolute inset-x-0 top-0 h-[3px] rounded-t-2xl', styles.bar)} />
+
       {/* Top row: icon + trend */}
       <div className="flex items-start justify-between">
         <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', styles.icon)}>

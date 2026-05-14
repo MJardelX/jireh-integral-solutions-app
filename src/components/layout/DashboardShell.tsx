@@ -6,12 +6,10 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, Layers, FileText, Receipt,
-  CreditCard, ChevronLeft, Menu, X, Sun, Moon, LogOut,
+  CreditCard, ChevronLeft, Menu, X, FileUp,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 
 import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
 import { ProfileModal } from '@/components/profile/ProfileModal';
 import { useT } from '@/context/I18nContext';
 
@@ -25,23 +23,23 @@ const SIDEBAR_KEY = 'jireh_sidebar';
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const { user, isLoading, isAuthenticated, logout } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { user, isLoading, isAuthenticated } = useAuth();
   const t = useT();
 
-  const NAV = [
+  const NAV: { label: string; href: string; icon: React.ElementType; exact?: boolean }[] = [
     { label: t.nav.dashboard,  href: '/dashboard',           icon: LayoutDashboard, exact: true },
     { label: t.nav.clients,    href: '/dashboard/clients',    icon: Users },
     { label: t.nav.plans,      href: '/dashboard/plans',      icon: Layers },
     { label: t.nav.contracts,  href: '/dashboard/contracts',  icon: FileText },
     { label: t.nav.invoices,   href: '/dashboard/invoices',   icon: Receipt },
     { label: t.nav.payments,   href: '/dashboard/payments',   icon: CreditCard },
-  ] as const;
+    { label: t.nav.import,    href: '/dashboard/import',     icon: FileUp },
+  ];
 
   const [expanded, setExpanded] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
   const initialized = useRef(false);
 
   // Auth guard
@@ -51,7 +49,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   // Restore sidebar preference from localStorage (client-only)
   useEffect(() => {
-    setMounted(true);
     if (!initialized.current) {
       initialized.current = true;
       const stored = localStorage.getItem(SIDEBAR_KEY);
@@ -59,9 +56,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Close mobile drawer on route change
+  // Close mobile drawer and stop nav spinner on route change
   useEffect(() => {
     setMobileOpen(false);
+    setNavigatingTo(null);
   }, [pathname]);
 
   function toggleSidebar() {
@@ -99,54 +97,38 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Nav links */}
       <nav className="mt-2 flex-1 space-y-0.5 px-2">
-        {NAV.map(({ label, href, icon: Icon, exact }) => {
+        {NAV.map(({ label, href, icon: Icon, exact = false }) => {
           const active = isActive(href, exact);
           return (
             <Link
               key={href}
               href={href}
               title={!expanded ? label : undefined}
+              onClick={() => { if (!isActive(href, exact)) setNavigatingTo(href); }}
               className={[
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
                 active
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted hover:bg-border/60 hover:text-popover-foreground',
                 !expanded && 'justify-center px-0',
               ].filter(Boolean).join(' ')}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              {active && expanded && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-primary" />
+              )}
+              {navigatingTo === href ? (
+                <span className="h-4 w-4 shrink-0 flex items-center justify-center">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent opacity-60" />
+                </span>
+              ) : (
+                <Icon className="h-4 w-4 shrink-0" />
+              )}
               {expanded && label}
             </Link>
           );
         })}
       </nav>
 
-      {/* Bottom: user info + actions */}
-      <div className={`border-t border-border p-3 space-y-1 ${!expanded ? 'flex flex-col items-center' : ''}`}>
-        {expanded && user && (
-          <div className="px-1 pb-2">
-            <p className="text-sm font-medium text-popover-foreground truncate">{user.name ?? user.email}</p>
-            <p className="text-xs capitalize text-muted">{user.role}</p>
-          </div>
-        )}
-        <div className={`flex ${expanded ? 'gap-1' : 'flex-col gap-1 items-center'}`}>
-          {mounted && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              title={t.nav.toggleTheme}
-            >
-              {theme === 'dark'
-                ? <Sun className="h-4 w-4 text-muted" />
-                : <Moon className="h-4 w-4 text-muted" />}
-            </Button>
-          )}
-          <Button variant="ghost" size="icon-sm" onClick={logout} title={t.nav.signOut}>
-            <LogOut className="h-4 w-4 text-muted" />
-          </Button>
-        </div>
-      </div>
     </div>
   );
 
@@ -155,7 +137,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* ── Desktop sidebar ──────────────────────────────────────────────────── */}
       <aside
         className={[
-          'hidden lg:flex flex-col border-r border-border bg-sidebar transition-all duration-200',
+          'hidden lg:flex flex-col border-r border-border bg-sidebar transition-all duration-300 ease-in-out',
           expanded ? 'w-56' : 'w-14',
         ].join(' ')}
       >
@@ -163,15 +145,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Mobile drawer overlay ─────────────────────────────────────────── */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
+      <div
+        className={[
+          'fixed inset-0 z-40 bg-black/50 lg:hidden transition-opacity duration-300',
+          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+        ].join(' ')}
+        onClick={() => setMobileOpen(false)}
+      />
       <aside
         className={[
-          'fixed inset-y-0 left-0 z-50 w-56 flex flex-col border-r border-border bg-sidebar transition-transform duration-200 lg:hidden',
+          'fixed inset-y-0 left-0 z-50 w-56 flex flex-col border-r border-border bg-sidebar transition-transform duration-300 ease-in-out lg:hidden',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         ].join(' ')}
       >
@@ -187,7 +170,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* ── Main area ────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm lg:px-6">
+        <header className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur-md lg:px-6 transition-shadow duration-200">
           {/* Left: mobile hamburger + desktop collapse */}
           <div className="flex items-center gap-2">
             <button

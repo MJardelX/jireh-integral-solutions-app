@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { Sun, Moon, Eye, EyeOff } from 'lucide-react';
+import { Sun, Moon, Eye, EyeOff, LogOut } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import {
   Dialog,
@@ -24,7 +24,7 @@ interface ProfileModalProps {
 }
 
 export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
-  const { user, updateProfile, authFetch } = useAuth();
+  const { user, updateProfile, authFetch, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
 
@@ -420,6 +420,17 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Sign out */}
+        <div className="border-t border-border px-6 py-3">
+          <button
+            onClick={() => { onOpenChange(false); logout(); }}
+            className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-muted transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+          >
+            <LogOut className="h-4 w-4" />
+            {t.nav.signOut}
+          </button>
         </div>
       </DialogContent>
     </Dialog>

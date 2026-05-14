@@ -11,7 +11,6 @@ import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { KpiCard, KpiSkeleton } from './_components/KpiCard';
 import { RevenueChart, RevenueChartSkeleton } from './_components/RevenueChart';
-import { StatusBreakdown, StatusBreakdownSkeleton } from './_components/StatusBreakdown';
 import { RecentPaymentsCard } from './_components/RecentPaymentsCard';
 import { OverdueCard } from './_components/OverdueCard';
 import { ClientAlertsTable } from './_components/ClientAlertsTable';
@@ -56,9 +55,12 @@ export default function DashboardPage() {
   const [error, setError]           = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [payOpen,      setPayOpen]      = useState(false);
-  const [payClientId,  setPayClientId]  = useState('');
+  const [payOpen,       setPayOpen]       = useState(false);
+  const [payClientId,   setPayClientId]   = useState('');
   const [payClientName, setPayClientName] = useState('');
+
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
 
   const fetchData = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -66,7 +68,7 @@ export default function DashboardPage() {
     setError(null);
 
     try {
-      const res = await authFetch('/api/dashboard/kpis');
+      const res = await authFetch(`/api/dashboard/kpis?year=${selectedYear}`);
       if (!res.ok) throw new Error('Failed to load dashboard data');
       setData(await res.json());
     } catch (err) {
@@ -75,16 +77,21 @@ export default function DashboardPage() {
       setFetching(false);
       setRefreshing(false);
     }
-  }, [authFetch]);
+  }, [authFetch, selectedYear]);
 
   useEffect(() => {
     if (isAuthenticated) fetchData();
   }, [isAuthenticated, fetchData]);
 
+  const currentMonthKey = `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const availableYears  = Array.from({ length: currentYear - 2023 }, (_, i) => 2024 + i);
+
   // ── Derived values ──────────────────────────────────────────────────────────
   const d = data;
-  const revTrend    = d ? pctTrend(d.revenue.currentMonth, d.revenue.lastMonth) : 0;
-  const clientTrend = d ? d.clients.newThisMonth - d.clients.newLastMonth : 0;
+  const revTrend           = d ? pctTrend(d.revenue.currentMonth, d.revenue.lastMonth) : 0;
+  const clientTrend        = d ? d.clients.newThisMonth - d.clients.newLastMonth : 0;
+  const allTimeOverdueCount  = d?.overdueInvoices.length ?? 0;
+  const allTimeOverdueAmount = d?.overdueInvoices.reduce((s, i) => s + i.amount, 0) ?? 0;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -171,16 +178,16 @@ export default function DashboardPage() {
             />
             <KpiCard
               title={t.dashboard.overdueInvoices}
-              value={String(d?.invoices.overdue ?? 0)}
-              subValue={d?.invoices.overdueAmount ? `${fmtCurrency(d.invoices.overdueAmount)} ${t.dashboard.outstanding}` : t.dashboard.noOverdueAmount}
+              value={String(allTimeOverdueCount)}
+              subValue={allTimeOverdueAmount > 0 ? `${fmtCurrency(allTimeOverdueAmount)} ${t.dashboard.outstanding}` : t.dashboard.noOverdueAmount}
               trend={
-                (d?.invoices.overdue ?? 0) > 0
+                allTimeOverdueCount > 0
                   ? { value: -1, label: t.dashboard.needsAttention }
                   : undefined
               }
               icon={<AlertCircle className="h-5 w-5" />}
               accent="red"
-              alert={(d?.invoices.overdue ?? 0) > 0}
+              alert={allTimeOverdueCount > 0}
             />
           </>
         )}
@@ -221,28 +228,26 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── Charts row ───────────────────────────────────────────────────── */}
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="rounded-2xl border border-border bg-popover p-6 lg:col-span-3">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-popover-foreground">{t.dashboard.revenueTitle}</h2>
-              <p className="text-xs text-muted">{t.dashboard.revenueSubtitle}</p>
-            </div>
-            <span className="text-xs text-muted">
-              {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} {t.dashboard.highlighted}
-            </span>
+      {/* ── Revenue chart ────────────────────────────────────────────────── */}
+      <div className="mt-6 rounded-2xl border border-border bg-popover p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-popover-foreground">{t.dashboard.revenueTitle}</h2>
+            <p className="text-xs text-muted">{t.dashboard.revenueSubtitle}</p>
           </div>
-          {fetching || !d ? <RevenueChartSkeleton /> : <RevenueChart data={d.revenue.monthlyTrend} />}
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="rounded-lg border border-border bg-input px-2 py-1 text-xs text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15"
+          >
+            {availableYears.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
-
-        <div className="rounded-2xl border border-border bg-popover p-6 lg:col-span-2">
-          <div className="mb-4">
-            <h2 className="font-semibold text-popover-foreground">{t.dashboard.invoiceStatusTitle}</h2>
-            <p className="text-xs text-muted">{t.dashboard.invoiceStatusSubtitle}</p>
-          </div>
-          {fetching || !d ? <StatusBreakdownSkeleton /> : <StatusBreakdown stats={d.invoices} />}
-        </div>
+        {fetching || !d
+          ? <RevenueChartSkeleton />
+          : <RevenueChart data={d.revenue.monthlyTrend} currentMonthKey={currentMonthKey} />}
       </div>
 
       {/* ── Tables row ───────────────────────────────────────────────────── */}
@@ -261,9 +266,9 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-popover-foreground">{t.dashboard.overdueTitle}</h2>
               <p className="text-xs text-muted">{t.dashboard.overdueSubtitle}</p>
             </div>
-            {(d?.invoices.overdue ?? 0) > 0 && (
+            {allTimeOverdueCount > 0 && (
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#cf4528] text-xs font-bold text-white">
-                {d!.invoices.overdue}
+                {allTimeOverdueCount}
               </span>
             )}
           </div>

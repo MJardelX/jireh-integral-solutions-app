@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import type { PaymentMethod, PaymentRow, NewPaymentItem } from '@/types/payment';
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
       .from('clients')
       .select('id')
       .or(`first_name.ilike.${term},last_name.ilike.${term}`);
-    matchedClientIds = (matched ?? []).map((c: any) => c.id);
+    matchedClientIds = (matched ?? []).map((c: { id: string }) => c.id);
     // No clients match → return empty immediately
     if (matchedClientIds.length === 0) {
       return NextResponse.json({ payments: [], total: 0, page, limit });
@@ -62,11 +63,11 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  function applyFilters<T extends ReturnType<typeof db.from>>(q: T): T {
-    if (clientId)            q = (q as any).eq('client_id', clientId);
-    if (filterDate)          q = (q as any).eq('payment_date', filterDate);
-    if (filterMonth)         q = (q as any).gte('payment_date', `${filterMonth}-01`).lte('payment_date', `${filterMonth}-31`);
-    if (matchedClientIds)    q = (q as any).in('client_id', matchedClientIds);
+  function applyFilters(q: any): any {
+    if (clientId)         q = q.eq('client_id', clientId);
+    if (filterDate)       q = q.eq('payment_date', filterDate);
+    if (filterMonth)      q = q.gte('payment_date', `${filterMonth}-01`).lte('payment_date', `${filterMonth}-31`);
+    if (matchedClientIds) q = q.in('client_id', matchedClientIds);
     return q;
   }
 

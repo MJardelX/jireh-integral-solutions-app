@@ -1,24 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { UserPlus, Search, Pencil, ToggleLeft, ToggleRight, X } from 'lucide-react';
+import { UserPlus, Search, ToggleLeft, ToggleRight, X, AlertTriangle } from 'lucide-react';
 import { Paginator } from '@/components/ui/paginator';
 import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/types/client';
 import type { InvoiceRow } from '@/types/invoice';
-import { RecordPaymentModal } from '@/components/payments/RecordPaymentModal';
+import { ClientDrawer } from '@/components/clients/ClientDrawer';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fullName(c: Client) { return `${c.first_name} ${c.last_name}`; }
 
+interface InvoiceSummary { overdue: number; pending: number; }
+
 const EMPTY_FORM = {
   first_name: '', last_name: '', phone: '', email: '', address: '', notes: '',
 };
-
-interface InvoiceSummary { overdue: number; pending: number; }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -26,27 +26,26 @@ export default function ClientsPage() {
   const t = useT();
   const { authFetch } = useAuth();
 
-  const [clients,      setClients]      = useState<Client[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState<string | null>(null);
-  const [search,       setSearch]       = useState('');
-  const [showAll,      setShowAll]      = useState(true);
-  const [page,         setPage]         = useState(1);
+  const [clients,   setClients]   = useState<Client[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [search,    setSearch]    = useState('');
+  const [showAll,   setShowAll]   = useState(true);
+  const [page,      setPage]      = useState(1);
   const PAGE_SIZE = 25;
 
-  // invoice status map: client_id → counts
-  const [invStatus,    setInvStatus]    = useState<Record<string, InvoiceSummary>>({});
+  // invoice status badges per client
+  const [invStatus, setInvStatus] = useState<Record<string, InvoiceSummary>>({});
 
-  // edit/create modal
-  const [open,         setOpen]         = useState(false);
-  const [editing,      setEditing]      = useState<Client | null>(null);
-  const [form,         setForm]         = useState(EMPTY_FORM);
-  const [saving,       setSaving]       = useState(false);
-  const [formError,    setFormError]    = useState<string | null>(null);
+  // create modal
+  const [open,      setOpen]      = useState(false);
+  const [form,      setForm]      = useState(EMPTY_FORM);
+  const [saving,    setSaving]    = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // payment modal
-  const [payOpen,   setPayOpen]   = useState(false);
-  const [payClient, setPayClient] = useState<{ id: string; name: string } | null>(null);
+  // drawer
+  const [drawerClient, setDrawerClient] = useState<Client | null>(null);
+  const [drawerOpen,   setDrawerOpen]   = useState(false);
 
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -81,6 +80,11 @@ export default function ClientsPage() {
       const { clients: data } = await res.json();
       setClients(data);
       setPage(1);
+      // Keep drawer header in sync when the open client was just edited
+      setDrawerClient((prev) => {
+        if (!prev) return prev;
+        return (data as Client[]).find((c) => c.id === prev.id) ?? prev;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -88,10 +92,7 @@ export default function ClientsPage() {
     }
   }, [authFetch, search, showAll]);
 
-  useEffect(() => {
-    load();
-    loadInvoiceStatus();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); loadInvoiceStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onSearchChange(v: string) {
     setSearch(v);
@@ -100,28 +101,19 @@ export default function ClientsPage() {
   }
 
   function openCreate() {
-    setEditing(null); setForm(EMPTY_FORM); setFormError(null); setOpen(true);
+    setForm(EMPTY_FORM); setFormError(null); setOpen(true);
   }
 
-  function openEdit(c: Client) {
-    setEditing(c);
-    setForm({ first_name: c.first_name, last_name: c.last_name, phone: c.phone, email: c.email ?? '', address: c.address, notes: c.notes ?? '' });
-    setFormError(null);
-    setOpen(true);
-  }
-
-  function openPayment(c: Client) {
-    setPayClient({ id: c.id, name: fullName(c) });
-    setPayOpen(true);
+  function openDrawer(c: Client) {
+    setDrawerClient(c);
+    setDrawerOpen(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setFormError(null);
     try {
-      const res = editing
-        ? await authFetch(`/api/clients/${editing.id}`, { method: 'PATCH', body: JSON.stringify(form) })
-        : await authFetch('/api/clients', { method: 'POST', body: JSON.stringify(form) });
+      const res = await authFetch('/api/clients', { method: 'POST', body: JSON.stringify(form) });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error); }
       setOpen(false);
       await load(search, showAll);
@@ -132,12 +124,45 @@ export default function ClientsPage() {
     }
   }
 
-  async function toggleActive(c: Client) {
+  async function toggleActive(e: React.MouseEvent, c: Client) {
+    e.stopPropagation();
     await authFetch(`/api/clients/${c.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: !c.is_active }) });
     await load(search, showAll);
+    // keep drawer data fresh if this client is open
+    if (drawerClient?.id === c.id) {
+      setDrawerClient((prev) => prev ? { ...prev, is_active: !prev.is_active } : prev);
+    }
   }
 
-  const canSubmit = form.first_name.trim() !== '' && form.last_name.trim() !== '' && form.phone.trim() !== '' && form.address.trim() !== '';
+  function InvoiceBadge({ clientId }: { clientId: string }) {
+    const s = invStatus[clientId];
+    if (!s || (s.overdue === 0 && s.pending === 0)) return <span className="text-xs text-muted">—</span>;
+
+    if (s.overdue >= 3) return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-400">
+        <AlertTriangle className="h-3 w-3" />
+        {s.overdue} {t.clients.badgeOverduePlural}
+      </span>
+    );
+
+    if (s.overdue > 0) return (
+      <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+        {s.overdue} {s.overdue === 1 ? t.clients.badgeOverdue : t.clients.badgeOverduePlural}
+      </span>
+    );
+
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        {s.pending} {s.pending === 1 ? t.clients.badgePending : t.clients.badgePendingPlural}
+      </span>
+    );
+  }
+
+  const canSubmit =
+    form.first_name.trim() !== '' &&
+    form.last_name.trim() !== '' &&
+    form.phone.trim() !== '' &&
+    form.address.trim() !== '';
 
   const INPUT_CLS = 'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15 dark:focus:border-primary';
 
@@ -154,29 +179,15 @@ export default function ClientsPage() {
     </div>
   );
 
-  function InvoiceBadge({ clientId }: { clientId: string }) {
-    const s = invStatus[clientId];
-    if (!s) return <span className="text-muted text-xs">—</span>;
-    if (s.overdue > 0) return (
-      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-        {t.invoices.statusOverdue} {s.overdue > 1 ? `(${s.overdue})` : ''}
-      </span>
-    );
-    if (s.pending > 0) return (
-      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-        {t.invoices.statusPending} {s.pending > 1 ? `(${s.pending})` : ''}
-      </span>
-    );
-    return <span className="text-muted text-xs">—</span>;
-  }
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-popover-foreground">{t.clients.title}</h1>
-          <p className="mt-0.5 text-sm text-muted">{clients.length} {showAll ? t.common.total : t.clients.activeOnly}</p>
+          <p className="mt-0.5 text-sm text-muted">
+            {clients.length} {showAll ? t.common.total : t.clients.activeOnly}
+          </p>
         </div>
         <Button onClick={openCreate} className="gap-2">
           <UserPlus className="h-4 w-4" /> {t.clients.addClient}
@@ -195,7 +206,12 @@ export default function ClientsPage() {
           />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted select-none">
-          <input type="checkbox" checked={showAll} onChange={(e) => { setShowAll(e.target.checked); load(search, e.target.checked); }} className="accent-primary" />
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => { setShowAll(e.target.checked); load(search, e.target.checked); }}
+            className="accent-primary"
+          />
           {t.clients.showInactive}
         </label>
       </div>
@@ -212,51 +228,43 @@ export default function ClientsPage() {
           <div className="p-12 text-center text-sm text-muted">{t.clients.noClients}</div>
         ) : (
           <>
-            {/* ── Mobile: card list ─────────────────────────────────────── */}
+            {/* Mobile: card list */}
             <ul className="divide-y divide-border sm:hidden">
-              {clients.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((c) => {
-                const s = invStatus[c.id];
-                const hasBalance = s && (s.overdue > 0 || s.pending > 0);
-                return (
-                  <li key={c.id} className="flex items-start justify-between gap-3 px-4 py-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-popover-foreground truncate">{fullName(c)}</span>
-                        <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${c.is_active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-border text-muted'}`}>
-                          {c.is_active ? t.common.active : t.common.inactive}
-                        </span>
-                        {hasBalance && (
-                          <button
-                            onClick={() => openPayment(c)}
-                            className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 cursor-pointer"
-                            style={s.overdue > 0
-                              ? { backgroundColor: 'rgb(254 226 226)', color: 'rgb(185 28 28)' }
-                              : { backgroundColor: 'rgb(254 243 199)', color: 'rgb(146 64 14)' }
-                            }
-                          >
-                            {s.overdue > 0
-                              ? `${t.invoices.statusOverdue}${s.overdue > 1 ? ` (${s.overdue})` : ''}`
-                              : `${t.invoices.statusPending}${s.pending > 1 ? ` (${s.pending})` : ''}`}
-                          </button>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-sm text-muted">{c.phone}{c.email ? ` · ${c.email}` : ''}</p>
-                      <p className="mt-0.5 text-xs text-muted truncate">{c.address}</p>
+              {clients.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((c) => (
+                <li
+                  key={c.id}
+                  className="flex cursor-pointer items-start justify-between gap-3 px-4 py-4 transition-colors hover:bg-border/20"
+                  onClick={() => openDrawer(c)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-medium text-popover-foreground">{fullName(c)}</span>
+                      <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                        c.is_active
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-border text-muted'
+                      }`}>
+                        {c.is_active ? t.common.active : t.common.inactive}
+                      </span>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => openEdit(c)} className="rounded-md p-1.5 text-muted hover:bg-border/60 hover:text-popover-foreground" title={t.common.edit}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => toggleActive(c)} className="rounded-md p-1.5 text-muted hover:bg-border/60" title={c.is_active ? t.clients.deactivate : t.clients.activate}>
-                        {c.is_active ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
+                    <p className="mt-0.5 text-sm text-muted">{c.phone}{c.email ? ` · ${c.email}` : ''}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted">{c.address}</p>
+                    <div className="mt-1"><InvoiceBadge clientId={c.id} /></div>
+                  </div>
+                  <button
+                    onClick={(e) => toggleActive(e, c)}
+                    className="shrink-0 rounded-md p-1.5 text-muted hover:bg-border/60"
+                    title={c.is_active ? t.clients.deactivate : t.clients.activate}
+                  >
+                    {c.is_active
+                      ? <ToggleRight className="h-4 w-4 text-green-500" />
+                      : <ToggleLeft className="h-4 w-4" />}
+                  </button>
+                </li>
+              ))}
             </ul>
 
-            {/* ── Desktop: table ────────────────────────────────────────── */}
+            {/* Desktop: table */}
             <table className="hidden w-full text-sm sm:table">
               <thead className="border-b border-border bg-background/40">
                 <tr>
@@ -266,71 +274,60 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {clients.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((c) => {
-                  const s = invStatus[c.id];
-                  const hasBalance = s && (s.overdue > 0 || s.pending > 0);
-                  return (
-                    <tr key={c.id} className="hover:bg-border/20 transition-colors">
-                      <td className="px-4 py-3 font-medium text-popover-foreground">{fullName(c)}</td>
-                      <td className="px-4 py-3 text-muted">{c.phone}</td>
-                      <td className="px-4 py-3 text-muted">{c.email ?? '—'}</td>
-                      <td className="px-4 py-3 text-muted max-w-xs truncate">{c.address}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${c.is_active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-border text-muted'}`}>
-                          {c.is_active ? t.common.active : t.common.inactive}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {hasBalance ? (
-                          <button
-                            onClick={() => openPayment(c)}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 cursor-pointer"
-                            style={s.overdue > 0
-                              ? { backgroundColor: 'rgb(254 226 226)', color: 'rgb(185 28 28)' }
-                              : { backgroundColor: 'rgb(254 243 199)', color: 'rgb(146 64 14)' }
-                            }
-                          >
-                            {s.overdue > 0
-                              ? `${t.invoices.statusOverdue}${s.overdue > 1 ? ` (${s.overdue})` : ''}`
-                              : `${t.invoices.statusPending}${s.pending > 1 ? ` (${s.pending})` : ''}`}
-                          </button>
-                        ) : (
-                          <span className="text-muted text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <button onClick={() => openEdit(c)} className="rounded-md p-1.5 text-muted hover:bg-border/60 hover:text-popover-foreground" title={t.common.edit}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => toggleActive(c)} className="rounded-md p-1.5 text-muted hover:bg-border/60 hover:text-popover-foreground" title={c.is_active ? t.clients.deactivate : t.clients.activate}>
-                            {c.is_active ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4" />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {clients.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((c) => (
+                  <tr
+                    key={c.id}
+                    className="cursor-pointer transition-colors hover:bg-border/20"
+                    onClick={() => openDrawer(c)}
+                  >
+                    <td className="px-4 py-3 font-medium text-popover-foreground">{fullName(c)}</td>
+                    <td className="px-4 py-3 text-muted">{c.phone}</td>
+                    <td className="px-4 py-3 text-muted">{c.email ?? '—'}</td>
+                    <td className="max-w-xs truncate px-4 py-3 text-muted">{c.address}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        c.is_active
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-border text-muted'
+                      }`}>
+                        {c.is_active ? t.common.active : t.common.inactive}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <InvoiceBadge clientId={c.id} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end">
+                        <button
+                          onClick={(e) => toggleActive(e, c)}
+                          className="rounded-md p-1.5 text-muted hover:bg-border/60 hover:text-popover-foreground"
+                          title={c.is_active ? t.clients.deactivate : t.clients.activate}
+                        >
+                          {c.is_active
+                            ? <ToggleRight className="h-4 w-4 text-green-500" />
+                            : <ToggleLeft className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </>
         )}
       </div>
 
-      <Paginator
-        page={page}
-        total={clients.length}
-        pageSize={PAGE_SIZE}
-        onChange={setPage}
-      />
+      <Paginator page={page} total={clients.length} pageSize={PAGE_SIZE} onChange={setPage} />
 
-      {/* Edit / Create Client modal */}
+      {/* Create client modal */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-2xl border border-border bg-popover p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-popover-foreground">{editing ? t.clients.editTitle : t.clients.newTitle}</h2>
-              <button onClick={() => setOpen(false)} className="rounded-md p-1 text-muted hover:text-popover-foreground"><X className="h-4 w-4" /></button>
+              <h2 className="text-lg font-semibold text-popover-foreground">{t.clients.newTitle}</h2>
+              <button onClick={() => setOpen(false)} className="rounded-md p-1 text-muted hover:text-popover-foreground">
+                <X className="h-4 w-4" />
+              </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -352,22 +349,22 @@ export default function ClientsPage() {
               {formError && <p className="text-sm text-destructive">{formError}</p>}
               <div className="flex justify-end gap-3 pt-2">
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button>
-                <Button type="submit" disabled={saving || !canSubmit}>{saving ? t.common.saving : editing ? t.clients.saveChanges : t.clients.createClient}</Button>
+                <Button type="submit" disabled={saving || !canSubmit}>
+                  {saving ? t.common.saving : t.clients.createClient}
+                </Button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {payClient && (
-        <RecordPaymentModal
-          clientId={payClient.id}
-          clientName={payClient.name}
-          open={payOpen}
-          onClose={() => setPayOpen(false)}
-          onSuccess={loadInvoiceStatus}
-        />
-      )}
+      {/* Client drawer */}
+      <ClientDrawer
+        client={drawerClient}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onClientUpdated={() => { load(search, showAll); loadInvoiceStatus(); }}
+      />
     </div>
   );
 }
@@ -386,7 +383,7 @@ const SKELETON_WIDTHS = [
 function ClientsTableSkeleton({ colHeaders }: { colHeaders: string[] }) {
   return (
     <>
-      {/* ── Mobile ────────────────────────────────────────────────────── */}
+      {/* Mobile */}
       <ul className="divide-y divide-border sm:hidden">
         {SKELETON_WIDTHS.map((w, i) => (
           <li key={i} className="flex items-start justify-between gap-3 px-4 py-4">
@@ -398,15 +395,12 @@ function ClientsTableSkeleton({ colHeaders }: { colHeaders: string[] }) {
               <div className={`skeleton h-3 rounded ${w.phone}`} />
               <div className={`skeleton h-3 rounded ${w.address}`} />
             </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <div className="skeleton h-7 w-7 rounded-md" />
-              <div className="skeleton h-7 w-7 rounded-md" />
-            </div>
+            <div className="skeleton h-7 w-7 rounded-md" />
           </li>
         ))}
       </ul>
 
-      {/* ── Desktop ───────────────────────────────────────────────────── */}
+      {/* Desktop */}
       <table className="hidden w-full text-sm sm:table">
         <thead className="border-b border-border bg-background/40">
           <tr>
@@ -423,10 +417,8 @@ function ClientsTableSkeleton({ colHeaders }: { colHeaders: string[] }) {
               <td className="px-4 py-3"><div className={`skeleton h-4 rounded ${w.email}`} /></td>
               <td className="px-4 py-3"><div className={`skeleton h-4 rounded ${w.address}`} /></td>
               <td className="px-4 py-3"><div className="skeleton h-5 w-14 rounded-full" /></td>
-              <td className="px-4 py-3"><div className="skeleton h-5 w-16 rounded-full" /></td>
               <td className="px-4 py-3">
-                <div className="flex items-center justify-end gap-1">
-                  <div className="skeleton h-7 w-7 rounded-md" />
+                <div className="flex justify-end">
                   <div className="skeleton h-7 w-7 rounded-md" />
                 </div>
               </td>
