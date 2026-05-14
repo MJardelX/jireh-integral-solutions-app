@@ -305,6 +305,7 @@ export const en = {
     colAmount: 'Amount',
     colMethod: 'Method',
     colInvoices: 'Invoices',
+    colMonths: 'Months Paid',
     colRecordedBy: 'Recorded By',
     noPaymentsYet: 'No payments recorded yet.',
     noPaymentsSearch: 'No payments match your search.',

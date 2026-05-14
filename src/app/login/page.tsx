@@ -10,6 +10,11 @@ export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
+    // Supabase invite/recovery links land here when Site URL is /login — forward them
+    if (window.location.hash.includes('type=invite')) {
+      window.location.replace('/auth/callback' + window.location.hash);
+      return;
+    }
     if (!isLoading && isAuthenticated) router.replace('/dashboard');
   }, [isAuthenticated, isLoading, router]);
 

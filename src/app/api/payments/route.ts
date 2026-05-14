@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     *,
     clients ( first_name, last_name ),
     profiles ( full_name ),
-    payment_items ( id )
+    payment_items ( id, invoices ( reference_month ) )
   `;
 
   // Resolve client name search to IDs upfront (referenced-table OR filters don't
@@ -55,7 +55,10 @@ export async function GET(request: NextRequest) {
       created_at:     p.created_at,
       client_name:    p.clients ? `${p.clients.first_name} ${p.clients.last_name}` : '',
       recorded_by:    p.profiles?.full_name ?? null,
-      invoice_count:  Array.isArray(p.payment_items) ? p.payment_items.length : 0,
+      invoice_count:     Array.isArray(p.payment_items) ? p.payment_items.length : 0,
+      reference_months:  Array.isArray(p.payment_items)
+        ? p.payment_items.map((item: any) => item.invoices?.reference_month).filter(Boolean)
+        : [],
     };
   }
 

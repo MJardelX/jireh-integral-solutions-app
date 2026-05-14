@@ -307,6 +307,7 @@ export const es: Translations = {
     colAmount: 'Monto',
     colMethod: 'Método',
     colInvoices: 'Facturas',
+    colMonths: 'Meses pagados',
     colRecordedBy: 'Registrado por',
     noPaymentsYet: 'Aún no hay pagos registrados.',
     noPaymentsSearch: 'Ningún pago coincide con la búsqueda.',

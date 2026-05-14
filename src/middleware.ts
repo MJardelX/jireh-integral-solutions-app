@@ -8,6 +8,7 @@ const PUBLIC_ROUTES = new Set([
   '/api/auth/google',
   '/api/auth/refresh',
   '/api/auth/logout',
+  '/api/auth/invite',
 ]);
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET!);

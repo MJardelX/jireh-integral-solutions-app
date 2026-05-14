@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Search, X } from 'lucide-react';
+import { Plus, Search, X, FileDown } from 'lucide-react';
 import { Paginator } from '@/components/ui/paginator';
 import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
+import { generarReciboPDF } from '@/lib/utils';
 import type { PaymentRow, PaymentMethod, NewPaymentItem } from '@/types/payment';
 import { PAYMENT_METHOD_LABELS } from '@/types/payment';
 import type { Client } from '@/types/client';
@@ -32,36 +33,36 @@ export default function PaymentsPage() {
   const t = useT();
   const { authFetch } = useAuth();
 
-  const [payments,     setPayments]     = useState<PaymentRow[]>([]);
-  const [clients,      setClients]      = useState<Client[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState<string | null>(null);
-  const [nameSearch,   setNameSearch]   = useState('');
-  const [filterDay,    setFilterDay]    = useState('');
-  const [filterMonth,  setFilterMonth]  = useState('');
-  const [page,         setPage]         = useState(1);
-  const [total,        setTotal]        = useState(0);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [nameSearch, setNameSearch] = useState('');
+  const [filterDay, setFilterDay] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [open,         setOpen]         = useState(false);
-  const [form,         setForm]         = useState(EMPTY_FORM);
-  const [clientInvs,   setClientInvs]   = useState<InvoiceRow[]>([]);
-  const [loadingInvs,  setLoadingInvs]  = useState(false);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [clientInvs, setClientInvs] = useState<InvoiceRow[]>([]);
+  const [loadingInvs, setLoadingInvs] = useState(false);
   const [selectedInvs, setSelectedInvs] = useState<Record<string, boolean>>({});
-  const [saving,       setSaving]       = useState(false);
-  const [formError,    setFormError]    = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState('');
-  const [dropOpen,     setDropOpen]     = useState(false);
+  const [dropOpen, setDropOpen] = useState(false);
   const clientBoxRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async (p = page, name = nameSearch, day = filterDay, month = filterMonth) => {
     setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ page: String(p) });
-      if (name.trim())  params.set('client_name', name.trim());
-      if (day)          params.set('date', day);
-      if (month)        params.set('month', month);
+      if (name.trim()) params.set('client_name', name.trim());
+      if (day) params.set('date', day);
+      if (month) params.set('month', month);
       const res = await authFetch(`/api/payments?${params}`);
       if (!res.ok) throw new Error('Failed to load payments');
       const { payments: pData, total: tot } = await res.json();
@@ -148,7 +149,7 @@ export default function PaymentsPage() {
     form.total_amount !== '' && parseFloat(form.total_amount) > 0 &&
     form.payment_date !== '';
 
-  const colHeaders = [t.payments.colClient, t.payments.colDate, t.payments.colAmount, t.payments.colMethod, t.payments.colInvoices, t.payments.colRecordedBy];
+  const colHeaders = [t.payments.colClient, t.payments.colDate, t.payments.colAmount, t.payments.colMethod, t.payments.colMonths, t.payments.colRecordedBy];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -223,7 +224,7 @@ export default function PaymentsPage() {
                         {new Date(p.payment_date + 'T00:00:00').toLocaleDateString()} · {PAYMENT_METHOD_LABELS[p.payment_method]}
                       </p>
                       <p className="mt-0.5 text-xs text-muted">
-                        {p.invoice_count} {p.invoice_count !== 1 ? t.payments.invoices : t.payments.invoice}
+                        {p.reference_months.length === 0 ? '—' : p.reference_months.map(fmtMonth).join(' · ')}
                         {p.recorded_by && ` · ${p.recorded_by}`}
                       </p>
                     </div>
@@ -248,8 +249,25 @@ export default function PaymentsPage() {
                     <td className="px-4 py-3 text-muted">{new Date(p.payment_date + 'T00:00:00').toLocaleDateString()}</td>
                     <td className="px-4 py-3 font-medium text-popover-foreground">{fmtCurrency(p.total_amount)}</td>
                     <td className="px-4 py-3 text-muted">{PAYMENT_METHOD_LABELS[p.payment_method]}</td>
-                    <td className="px-4 py-3 text-muted">{p.invoice_count} {p.invoice_count !== 1 ? t.payments.invoices : t.payments.invoice}</td>
-                    <td className="px-4 py-3 text-muted">{p.recorded_by ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted">{p.reference_months.length === 0 ? '—' : p.reference_months.map(fmtMonth).join(' · ')}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted">{p.recorded_by ?? '—'}</span>
+                        <Button size="icon-sm" variant="outline" title="Descargar PDF" onClick={async () => {
+                          await generarReciboPDF({
+                            cliente: p.client_name,
+                            monto: p.total_amount,
+                            metodo: PAYMENT_METHOD_LABELS[p.payment_method],
+                            fecha: p.payment_date,
+                            notas: p.notes || '',
+                            id: p.id,
+                            meses: p.reference_months,
+                          });
+                        }}>
+                          <FileDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

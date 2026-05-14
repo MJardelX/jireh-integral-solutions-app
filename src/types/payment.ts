@@ -22,6 +22,7 @@ export interface PaymentRow extends Payment {
   client_name: string;
   recorded_by: string | null;
   invoice_count: number;
+  reference_months: string[];
 }
 
 export interface NewPaymentItem {
