@@ -51,8 +51,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!initialized.current) {
       initialized.current = true;
-      const stored = localStorage.getItem(SIDEBAR_KEY);
-      if (stored !== null) setExpanded(stored === 'true');
+      try {
+        const stored = localStorage.getItem(SIDEBAR_KEY);
+        if (stored !== null) setExpanded(stored === 'true');
+      } catch { /* Safari private mode blocks localStorage */ }
     }
   }, []);
 
@@ -65,7 +67,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   function toggleSidebar() {
     setExpanded((prev) => {
       const next = !prev;
-      localStorage.setItem(SIDEBAR_KEY, String(next));
+      try { localStorage.setItem(SIDEBAR_KEY, String(next)); } catch { /* Safari private mode */ }
       return next;
     });
   }
