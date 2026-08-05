@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
     contracts (
       due_day,
       special_price,
+      label,
       clients ( id, first_name, last_name, email ),
       service_plans ( name, price, recurrence )
     )
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
       client_email:    cl?.email ?? null,
       plan_name:       sp?.name ?? '',
       plan_recurrence: sp?.recurrence ?? 'monthly',
+      contract_label:  c?.label ?? null,
       due_day:         c?.due_day ?? 10,
     };
   }

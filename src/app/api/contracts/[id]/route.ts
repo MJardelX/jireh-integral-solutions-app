@@ -13,7 +13,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
 
   const body = await request.json() as Record<string, unknown>;
-  const ALLOWED = ['status', 'special_price', 'due_day', 'end_date', 'notes'];
+  const ALLOWED = ['status', 'label', 'special_price', 'due_day', 'end_date', 'notes'];
   const patch: Record<string, unknown> = {};
   for (const k of ALLOWED) {
     if (k in body) patch[k] = body[k] === '' ? null : body[k];

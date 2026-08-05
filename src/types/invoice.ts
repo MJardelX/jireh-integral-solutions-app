@@ -27,5 +27,7 @@ export interface InvoiceRow extends Invoice {
   client_email: string | null;
   plan_name: string;
   plan_recurrence: PlanRecurrence;
+  /** Contract nickname, when the client gave this contract one. */
+  contract_label: string | null;
   due_day: number;
 }

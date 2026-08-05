@@ -24,7 +24,7 @@ function fmtPrice(n: number) {
 }
 
 const EMPTY_FORM = {
-  client_id: '', plan_id: '', special_price: '',
+  client_id: '', plan_id: '', label: '', special_price: '',
   due_day: '10', start_date: new Date().toISOString().slice(0, 10), notes: '',
 };
 
@@ -56,6 +56,11 @@ export default function ContractsPage() {
   const [clientSearch, setClientSearch] = useState('');
   const [dropOpen,     setDropOpen]     = useState(false);
   const clientBoxRef = useRef<HTMLDivElement>(null);
+
+  // Inline label editing, so contracts created before labels existed can get one
+  const [labelEditing, setLabelEditing] = useState<ContractRow | null>(null);
+  const [labelDraft,   setLabelDraft]   = useState('');
+  const [savingLabel,  setSavingLabel]  = useState(false);
 
   // Contracts the selected client already holds — shown before assigning another
   const [clientContracts, setClientContracts] = useState<ContractRow[]>([]);
@@ -135,6 +140,21 @@ export default function ContractsPage() {
     finally { setSaving(false); }
   }
 
+  async function saveLabel() {
+    if (!labelEditing) return;
+    setSavingLabel(true);
+    try {
+      await authFetch(`/api/contracts/${labelEditing.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label: labelDraft.trim() }),
+      });
+      setLabelEditing(null);
+      await load(statusTab);
+    } finally {
+      setSavingLabel(false);
+    }
+  }
+
   async function changeStatus(id: string, status: ContractStatus) {
     await authFetch(`/api/contracts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
     await load(statusTab);
@@ -210,7 +230,10 @@ export default function ContractsPage() {
                           {statusLabels[c.status]}
                         </span>
                       </div>
-                      <p className="mt-0.5 text-sm text-muted">{c.plan_name}</p>
+                      <p className="mt-0.5 text-sm text-muted">
+                        {c.label && <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">{c.label}</span>}
+                        {c.plan_name}
+                      </p>
                       <p className="mt-0.5 text-sm">
                         <span className="font-medium text-popover-foreground">{fmtPrice(c.effective_price)}</span>
                         {c.special_price !== null && <span className="ml-1 text-xs text-muted">({t.contracts.custom})</span>}
@@ -220,6 +243,7 @@ export default function ContractsPage() {
                     </div>
                   </div>
                   <div className="mt-2 flex items-center gap-1">
+                    <button onClick={() => { setLabelEditing(c); setLabelDraft(c.label ?? ''); }} className="rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10">{t.contracts.actionLabel}</button>
                     {c.status !== 'active' && (
                       <button onClick={() => changeStatus(c.id, 'active')} className="rounded-md px-2 py-1 text-xs text-green-600 hover:bg-green-100 dark:hover:bg-green-900/20">{t.contracts.actionActivate}</button>
                     )}
@@ -250,7 +274,10 @@ export default function ContractsPage() {
                 {contracts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((c) => (
                   <tr key={c.id} className="hover:bg-border/20 transition-colors">
                     <td className="px-4 py-3 font-medium text-popover-foreground">{c.client_name}</td>
-                    <td className="px-4 py-3 text-muted">{c.plan_name}</td>
+                    <td className="px-4 py-3 text-muted">
+                      {c.label && <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">{c.label}</span>}
+                      {c.plan_name}
+                    </td>
                     <td className="px-4 py-3">
                       <span className="font-medium text-popover-foreground">{fmtPrice(c.effective_price)}</span>
                       {c.special_price !== null && <span className="ml-1 text-xs text-muted">({t.contracts.custom})</span>}
@@ -265,6 +292,7 @@ export default function ContractsPage() {
                     <td className="px-4 py-3 text-muted">{new Date(c.start_date + 'T00:00:00').toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
+                        <button onClick={() => { setLabelEditing(c); setLabelDraft(c.label ?? ''); }} className="rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10">{t.contracts.actionLabel}</button>
                         {c.status !== 'active' && (
                           <button onClick={() => changeStatus(c.id, 'active')} className="rounded-md px-2 py-1 text-xs text-green-600 hover:bg-green-100 dark:hover:bg-green-900/20">{t.contracts.actionActivate}</button>
                         )}
@@ -293,6 +321,42 @@ export default function ContractsPage() {
         pageSize={PAGE_SIZE}
         onChange={setPage}
       />
+
+      {/* Label editor */}
+      {labelEditing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-popover p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-popover-foreground">{t.contracts.labelLabel}</h2>
+                <p className="mt-0.5 truncate text-sm text-muted">
+                  {labelEditing.client_name} · {labelEditing.plan_name}
+                </p>
+              </div>
+              <button onClick={() => setLabelEditing(null)} className="rounded-md p-1 text-muted hover:text-popover-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <input
+              autoFocus
+              type="text"
+              maxLength={40}
+              value={labelDraft}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !savingLabel) saveLabel(); }}
+              placeholder={t.contracts.labelPlaceholder}
+              className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15"
+            />
+            <p className="mt-1 text-xs text-muted">{t.contracts.labelHint}</p>
+            <div className="mt-5 flex justify-end gap-3">
+              <Button type="button" variant="ghost" onClick={() => setLabelEditing(null)}>{t.common.cancel}</Button>
+              <Button type="button" disabled={savingLabel} onClick={saveLabel}>
+                {savingLabel ? t.common.saving : t.common.save}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {open && (
@@ -353,8 +417,9 @@ export default function ContractsPage() {
                     {clientContracts.map((c) => (
                       <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-popover-foreground">
+                          {c.label ? <span className="font-medium">{c.label} · </span> : null}
                           {c.plan_name}
-                          <span className="text-muted"> · {contractCode(c.id)}</span>
+                          {!c.label && <span className="text-muted"> · {contractCode(c.id)}</span>}
                         </span>
                         <span className="flex items-center gap-2">
                           <span className="text-muted">{fmtPrice(c.effective_price)}</span>
@@ -378,6 +443,18 @@ export default function ContractsPage() {
                 {selectedPlan && (
                   <p className="mt-1 text-xs text-muted">{t.contracts.standardPrice} {fmtPrice(selectedPlan.price)}</p>
                 )}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted">{t.contracts.labelLabel}</label>
+                <input
+                  type="text"
+                  maxLength={40}
+                  value={form.label}
+                  onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+                  placeholder={t.contracts.labelPlaceholder}
+                  className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15"
+                />
+                <p className="mt-1 text-xs text-muted">{t.contracts.labelHint}</p>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted">{t.contracts.customPrice}</label>

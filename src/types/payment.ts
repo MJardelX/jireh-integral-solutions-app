@@ -21,6 +21,7 @@ export interface Payment {
 /** One invoice covered by a payment, tied to the contract it was billed under. */
 export interface PaymentPeriod {
   contract_id: string;
+  contract_label: string | null;
   plan_name: string;
   reference_month: string;
   amount_applied: number;

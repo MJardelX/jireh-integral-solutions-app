@@ -6,6 +6,8 @@ export interface Contract {
   id: string;
   client_id: string;
   plan_id: string;
+  /** Optional nickname ("Casa", "Negocio") to tell apart a client's contracts. */
+  label: string | null;
   special_price: number | null;
   status: ContractStatus;
   start_date: string;

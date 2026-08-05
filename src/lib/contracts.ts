@@ -1,11 +1,11 @@
 /**
  * Labelling helpers for clients that hold more than one contract.
  *
- * A payment or an invoice is identified to the user by its plan name. That is
- * enough while a client's contracts all use different plans; when the same plan
- * is contracted twice (two houses on the same package, say) the plan name alone
- * is ambiguous, so a short contract code is appended — but only in that case,
- * to keep the common screens clean.
+ * A contract is identified to the user by its nickname when it has one
+ * ("Casa", "Negocio"), otherwise by its plan name. Plan names are ambiguous
+ * when the same plan is contracted twice and neither was given a nickname, so
+ * a short contract code is appended — but only in that case, to keep the
+ * common screens clean.
  */
 
 import type { PaymentRow } from '@/types/payment';
@@ -18,29 +18,34 @@ export function contractCode(contractId: string): string {
 
 interface Labelable {
   contract_id: string;
+  contract_label: string | null;
   plan_name: string;
 }
 
 /**
  * Maps contract_id → display label over a set of rows belonging to one client.
- * Returns "Plan Básico" normally, "Plan Básico #3F9A21" where the plan repeats
- * across two different contracts.
+ * Returns the contract's nickname when it has one, else the plan name, else
+ * "Plan Básico #3F9A21" when two unnamed contracts share a plan.
  */
 export function contractLabels(rows: Labelable[]): Record<string, string> {
-  const contractsByPlan = new Map<string, Set<string>>();
+  const contractsByName = new Map<string, Set<string>>();
   for (const r of rows) {
-    if (!contractsByPlan.has(r.plan_name)) contractsByPlan.set(r.plan_name, new Set());
-    contractsByPlan.get(r.plan_name)!.add(r.contract_id);
+    const name = baseName(r);
+    if (!contractsByName.has(name)) contractsByName.set(name, new Set());
+    contractsByName.get(name)!.add(r.contract_id);
   }
 
   const labels: Record<string, string> = {};
   for (const r of rows) {
-    const ambiguous = (contractsByPlan.get(r.plan_name)?.size ?? 0) > 1;
-    labels[r.contract_id] = ambiguous
-      ? `${r.plan_name} ${contractCode(r.contract_id)}`
-      : r.plan_name;
+    const name = baseName(r);
+    const ambiguous = (contractsByName.get(name)?.size ?? 0) > 1;
+    labels[r.contract_id] = ambiguous ? `${name} ${contractCode(r.contract_id)}` : name;
   }
   return labels;
+}
+
+function baseName(row: Labelable): string {
+  return row.contract_label?.trim() || row.plan_name;
 }
 
 /** "Plan Básico — ago 2026 · Plan Negocio — ago 2026", for payment listings. */

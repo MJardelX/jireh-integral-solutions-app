@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       invoices (
         reference_month,
         contract_id,
-        contracts ( service_plans ( name ) )
+        contracts ( label, service_plans ( name ) )
       )
     )
   `;
@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
             .filter((item: any) => item.invoices)
             .map((item: any) => ({
               contract_id:     item.invoices.contract_id,
+              contract_label:  item.invoices.contracts?.label ?? null,
               plan_name:       item.invoices.contracts?.service_plans?.name ?? '',
               reference_month: item.invoices.reference_month,
               amount_applied:  Number(item.amount_applied),

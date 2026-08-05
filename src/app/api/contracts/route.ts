@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       id:              c.id,
       client_id:       c.client_id,
       plan_id:         c.plan_id,
+      label:           c.label ?? null,
       special_price:   c.special_price,
       status:          c.status,
       start_date:      c.start_date,
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json() as Record<string, unknown>;
-  const { client_id, plan_id, special_price, due_day, start_date, end_date, notes } = body;
+  const { client_id, plan_id, label, special_price, due_day, start_date, end_date, notes } = body;
 
   if (!client_id || !plan_id) {
     return NextResponse.json({ error: 'client_id and plan_id are required' }, { status: 400 });
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
     .insert({
       client_id,
       plan_id,
+      label: typeof label === 'string' && label.trim() !== '' ? label.trim() : null,
       special_price: special_price !== undefined && special_price !== '' ? Number(special_price) : null,
       due_day: due_day ? Number(due_day) : 10,
       start_date: start_date || new Date().toISOString().slice(0, 10),
