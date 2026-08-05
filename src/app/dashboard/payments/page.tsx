@@ -7,11 +7,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { generarReciboPDF } from '@/lib/utils';
+import { matchesTerm } from '@/lib/search';
+import { describePeriods, reciboPeriodos } from '@/lib/contracts';
+import { InvoicePicker } from '@/components/payments/InvoicePicker';
 import type { PaymentRow, PaymentMethod, NewPaymentItem } from '@/types/payment';
 import { PAYMENT_METHOD_LABELS } from '@/types/payment';
 import type { Client } from '@/types/client';
 import type { InvoiceRow } from '@/types/invoice';
-import { INVOICE_STATUS_LABELS } from '@/types/invoice';
 
 const METHODS: PaymentMethod[] = ['efectivo', 'transferencia', 'tarjeta_de_credito', 'tarjeta_de_debito'];
 
@@ -44,6 +46,8 @@ export default function PaymentsPage() {
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -90,7 +94,7 @@ export default function PaymentsPage() {
   }, []);
 
   const filteredClients = clients.filter((c) =>
-    `${c.first_name} ${c.last_name}`.toLowerCase().includes(clientSearch.toLowerCase())
+    matchesTerm(clientSearch, `${c.first_name} ${c.last_name}`)
   );
 
   async function onClientChange(clientId: string) {
@@ -138,6 +142,23 @@ export default function PaymentsPage() {
       await loadPayments(1, nameSearch, filterDay, filterMonth);
     } catch (e) { setFormError(e instanceof Error ? e.message : 'Error'); }
     finally { setSaving(false); }
+  }
+
+  async function downloadReceipt(p: PaymentRow) {
+    setDownloadingId(p.id);
+    try {
+      await generarReciboPDF({
+        cliente: p.client_name,
+        monto:   p.total_amount,
+        metodo:  PAYMENT_METHOD_LABELS[p.payment_method],
+        fecha:   p.payment_date,
+        notas:   p.notes || '',
+        id:      p.id,
+        periodos: reciboPeriodos(p),
+      });
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   const isFiltered = nameSearch.trim() !== '' || filterDay !== '' || filterMonth !== '';
@@ -224,10 +245,21 @@ export default function PaymentsPage() {
                         {new Date(p.payment_date + 'T00:00:00').toLocaleDateString()} · {PAYMENT_METHOD_LABELS[p.payment_method]}
                       </p>
                       <p className="mt-0.5 text-xs text-muted">
-                        {p.reference_months.length === 0 ? '—' : p.reference_months.map(fmtMonth).join(' · ')}
+                        {describePeriods(p, fmtMonth)}
                         {p.recorded_by && ` · ${p.recorded_by}`}
                       </p>
                     </div>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      className="shrink-0"
+                      title={t.payments.downloadReceipt}
+                      aria-label={t.payments.downloadReceipt}
+                      disabled={downloadingId === p.id}
+                      onClick={() => downloadReceipt(p)}
+                    >
+                      <FileDown className="h-4 w-4" />
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -249,21 +281,18 @@ export default function PaymentsPage() {
                     <td className="px-4 py-3 text-muted">{new Date(p.payment_date + 'T00:00:00').toLocaleDateString()}</td>
                     <td className="px-4 py-3 font-medium text-popover-foreground">{fmtCurrency(p.total_amount)}</td>
                     <td className="px-4 py-3 text-muted">{PAYMENT_METHOD_LABELS[p.payment_method]}</td>
-                    <td className="px-4 py-3 text-muted">{p.reference_months.length === 0 ? '—' : p.reference_months.map(fmtMonth).join(' · ')}</td>
+                    <td className="px-4 py-3 text-muted">{describePeriods(p, fmtMonth)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-muted">{p.recorded_by ?? '—'}</span>
-                        <Button size="icon-sm" variant="outline" title="Descargar PDF" onClick={async () => {
-                          await generarReciboPDF({
-                            cliente: p.client_name,
-                            monto: p.total_amount,
-                            metodo: PAYMENT_METHOD_LABELS[p.payment_method],
-                            fecha: p.payment_date,
-                            notas: p.notes || '',
-                            id: p.id,
-                            meses: p.reference_months,
-                          });
-                        }}>
+                        <Button
+                          size="icon-sm"
+                          variant="outline"
+                          title={t.payments.downloadReceipt}
+                          aria-label={t.payments.downloadReceipt}
+                          disabled={downloadingId === p.id}
+                          onClick={() => downloadReceipt(p)}
+                        >
                           <FileDown className="h-4 w-4" />
                         </Button>
                       </div>
@@ -339,16 +368,7 @@ export default function PaymentsPage() {
                   ) : clientInvs.length === 0 ? (
                     <p className="text-xs text-muted">{t.payments.noOpenInvoices}</p>
                   ) : (
-                    <div className="space-y-1.5 rounded-xl border border-border p-3">
-                      {clientInvs.map((inv) => (
-                        <label key={inv.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-border/30">
-                          <input type="checkbox" checked={!!selectedInvs[inv.id]} onChange={() => toggleInv(inv.id)} className="accent-primary" />
-                          <span className="flex-1 text-sm text-popover-foreground">{inv.plan_name} — {fmtMonth(inv.reference_month)}</span>
-                          <span className={`text-xs ${inv.status === 'overdue' ? 'text-destructive' : 'text-muted'}`}>{INVOICE_STATUS_LABELS[inv.status]}</span>
-                          <span className="text-sm font-medium text-popover-foreground">{fmtCurrency(inv.amount)}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <InvoicePicker invoices={clientInvs} selected={selectedInvs} onToggle={toggleInv} />
                   )}
                 </div>
               )}

@@ -8,6 +8,13 @@ export function cn(...inputs: ClassValue[]) {
 // Recibo PDF
 import jsPDF from 'jspdf';
 
+/** One line of the receipt: which plan/contract was paid, for which month, how much. */
+export interface ReciboPeriodo {
+  plan: string;
+  mes: string;
+  monto: number;
+}
+
 export async function generarReciboPDF({
   cliente,
   monto,
@@ -15,7 +22,7 @@ export async function generarReciboPDF({
   fecha,
   notas,
   id,
-  meses,
+  periodos,
 }: {
   cliente: string;
   monto: number;
@@ -23,7 +30,7 @@ export async function generarReciboPDF({
   fecha: string;
   notas?: string;
   id: string;
-  meses: string[];
+  periodos: ReciboPeriodo[];
 }) {
   const doc = new jsPDF();
 
@@ -116,13 +123,7 @@ export async function generarReciboPDF({
   // ── Payment details card ──────────────────────────────────────────────
   cy += 28;
 
-  // Pre-calculate meses text for dynamic card height
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  const mesesStr = meses.length > 0 ? meses.map(fmtMonthLabel).join(' · ') : '—';
-  const mesesLines = doc.splitTextToSize(mesesStr, 100) as string[];
-  const mesesExtraH = Math.max(0, (mesesLines.length - 1) * 5);
-  const DCARD_H = 69 + mesesExtraH;
+  const DCARD_H = 69;
 
   fill(WHITE); stroke(BORDER); doc.setLineWidth(0.3);
   doc.roundedRect(M, cy, CW, DCARD_H, 2, 2, 'FD');
@@ -159,20 +160,23 @@ export async function generarReciboPDF({
   stroke(BORDER); doc.setLineWidth(0.2);
   doc.line(M + 6, R2Y + 3, RX - 6, R2Y + 3);
 
-  // Row: Períodos pagados
+  // Row: Facturas cubiertas (detailed one by one further down)
   const R3Y = cy + 46;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   text(MUTED);
-  doc.text('Períodos pagados', M + 6, R3Y);
+  doc.text('Facturas cubiertas', M + 6, R3Y);
   doc.setFont('helvetica', 'bold');
   text(DARK);
-  doc.text(mesesLines, RX - 6, R3Y, { align: 'right' });
+  doc.text(
+    periodos.length === 0 ? '—' : `${periodos.length} ${periodos.length === 1 ? 'factura' : 'facturas'}`,
+    RX - 6, R3Y, { align: 'right' }
+  );
   stroke(ORANGE); doc.setLineWidth(0.4);
-  doc.line(M + 6, R3Y + 3 + mesesExtraH, RX - 6, R3Y + 3 + mesesExtraH);
+  doc.line(M + 6, R3Y + 3, RX - 6, R3Y + 3);
 
   // Row: Total pagado (prominent)
-  const R4Y = cy + 59 + mesesExtraH;
+  const R4Y = cy + 59;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   text(MUTED);
@@ -185,7 +189,7 @@ export async function generarReciboPDF({
   // ── Facturas aplicadas ────────────────────────────────────────────────
   cy += DCARD_H + 8;
 
-  if (meses.length > 0) {
+  if (periodos.length > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
     text(MUTED);
@@ -194,15 +198,27 @@ export async function generarReciboPDF({
     doc.line(M, cy + 2, RX, cy + 2);
     cy += 8;
 
-    for (const mes of meses) {
+    // One row per invoice: the plan it was billed under, its month, and the
+    // amount applied — so a client with several contracts can tell them apart.
+    for (const p of periodos) {
       fill(BG); stroke(BORDER); doc.setLineWidth(0.2);
       doc.roundedRect(M, cy, CW, 10, 1.5, 1.5, 'FD');
       fill(ORANGE);
       doc.circle(M + 6, cy + 5, 1.2, 'F');
-      doc.setFont('helvetica', 'normal');
+
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       text(DARK);
-      doc.text(fmtMonthLabel(mes), M + 11, cy + 6.5);
+      doc.text(p.plan || '—', M + 11, cy + 6.5);
+
+      const planW = doc.getTextWidth(p.plan || '—');
+      doc.setFont('helvetica', 'normal');
+      text(MUTED);
+      doc.text(`· ${fmtMonthLabel(p.mes)}`, M + 14 + planW, cy + 6.5);
+
+      doc.setFont('helvetica', 'bold');
+      text(DARK);
+      doc.text(fmtCurrency(p.monto), RX - 6, cy + 6.5, { align: 'right' });
       cy += 13;
     }
 

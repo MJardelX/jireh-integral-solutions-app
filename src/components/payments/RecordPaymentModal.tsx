@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
+import { InvoicePicker } from '@/components/payments/InvoicePicker';
 import type { InvoiceRow } from '@/types/invoice';
 import type { PaymentMethod, NewPaymentItem } from '@/types/payment';
 import { PAYMENT_METHOD_LABELS } from '@/types/payment';
@@ -15,13 +16,6 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 
 const INPUT_CLS =
   'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15 dark:focus:border-primary';
-
-function fmtCurrency(n: number) {
-  return new Intl.NumberFormat('es-GT', { style: 'currency', currency: 'GTQ' }).format(n);
-}
-function fmtMonth(d: string) {
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
 
 export interface RecordPaymentModalProps {
   clientId: string;
@@ -124,7 +118,7 @@ export function RecordPaymentModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-lg rounded-2xl border border-border bg-popover p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="mb-5 flex items-center justify-between">
           <div>
@@ -144,30 +138,7 @@ export function RecordPaymentModal({
             ) : invs.length === 0 ? (
               <p className="text-xs text-muted">{t.clients.noOpenInvoices}</p>
             ) : (
-              <div className="space-y-1.5 rounded-xl border border-border p-3">
-                {invs.map((inv) => (
-                  <label
-                    key={inv.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-border/30"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!selected[inv.id]}
-                      onChange={() => toggleInv(inv.id)}
-                      className="accent-primary"
-                    />
-                    <span className="flex-1 text-sm text-popover-foreground">
-                      {inv.plan_name} — {fmtMonth(inv.reference_month)}
-                    </span>
-                    <span className={`text-xs ${inv.status === 'overdue' ? 'text-destructive' : 'text-muted'}`}>
-                      {inv.status === 'overdue' ? t.invoices.statusOverdue : t.invoices.statusPending}
-                    </span>
-                    <span className="text-sm font-medium text-popover-foreground">
-                      {fmtCurrency(inv.amount)}
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <InvoicePicker invoices={invs} selected={selected} onToggle={toggleInv} />
             )}
           </div>
 

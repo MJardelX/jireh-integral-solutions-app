@@ -1,5 +1,11 @@
+'use client';
+
+import { useState } from 'react';
 import type { OverdueInvoice } from '@/types/dashboard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Paginator } from '@/components/ui/paginator';
+
+const PAGE_SIZE = 10;
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -21,6 +27,13 @@ interface OverdueCardProps {
 }
 
 export function OverdueCard({ invoices, loading }: OverdueCardProps) {
+  const [page, setPage] = useState(1);
+
+  // Clamped rather than reset, so a refresh doesn't kick the user back to page 1
+  const totalPages  = Math.max(1, Math.ceil(invoices.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visible     = invoices.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   if (loading) return <TableSkeleton rows={5} />;
 
   if (invoices.length === 0) {
@@ -33,32 +46,41 @@ export function OverdueCard({ invoices, loading }: OverdueCardProps) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow className="border-border hover:bg-transparent">
-          <TableHead className="text-muted">Client</TableHead>
-          <TableHead className="text-muted">Plan</TableHead>
-          <TableHead className="text-muted">Due</TableHead>
-          <TableHead className="text-muted">Days</TableHead>
-          <TableHead className="text-right text-muted">Amount</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {invoices.map((inv) => (
-          <TableRow key={inv.id} className="border-border">
-            <TableCell className="font-medium text-popover-foreground">{inv.clientName}</TableCell>
-            <TableCell className="max-w-[120px] truncate text-muted">{inv.planName}</TableCell>
-            <TableCell className="text-muted">{fmtDate(inv.dueDate)}</TableCell>
-            <TableCell className={urgencyColor(inv.daysOverdue)}>
-              {inv.daysOverdue}d
-            </TableCell>
-            <TableCell className="text-right font-semibold text-[#cf4528]">
-              {fmtMoney(inv.amount)}
-            </TableCell>
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow className="border-border hover:bg-transparent">
+            <TableHead className="text-muted">Client</TableHead>
+            <TableHead className="text-muted">Plan</TableHead>
+            <TableHead className="text-muted">Due</TableHead>
+            <TableHead className="text-muted">Days</TableHead>
+            <TableHead className="text-right text-muted">Amount</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {visible.map((inv) => (
+            <TableRow key={inv.id} className="border-border">
+              <TableCell className="font-medium text-popover-foreground">{inv.clientName}</TableCell>
+              <TableCell className="max-w-[120px] truncate text-muted">{inv.planName}</TableCell>
+              <TableCell className="text-muted">{fmtDate(inv.dueDate)}</TableCell>
+              <TableCell className={urgencyColor(inv.daysOverdue)}>
+                {inv.daysOverdue}d
+              </TableCell>
+              <TableCell className="text-right font-semibold text-[#cf4528]">
+                {fmtMoney(inv.amount)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      <Paginator
+        page={currentPage}
+        total={invoices.length}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+      />
+    </>
   );
 }
 

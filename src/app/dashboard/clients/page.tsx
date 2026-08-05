@@ -7,7 +7,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/types/client';
-import type { InvoiceRow } from '@/types/invoice';
 import { ClientDrawer } from '@/components/clients/ClientDrawer';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,22 +50,11 @@ export default function ClientsPage() {
 
   const loadInvoiceStatus = useCallback(async () => {
     try {
-      const [r1, r2] = await Promise.all([
-        authFetch('/api/invoices?status=overdue'),
-        authFetch('/api/invoices?status=pending'),
-      ]);
-      const { invoices: overdue = [] } = await r1.json();
-      const { invoices: pending = [] } = await r2.json();
-      const map: Record<string, InvoiceSummary> = {};
-      for (const inv of overdue as InvoiceRow[]) {
-        if (!map[inv.client_id]) map[inv.client_id] = { overdue: 0, pending: 0 };
-        map[inv.client_id].overdue++;
-      }
-      for (const inv of pending as InvoiceRow[]) {
-        if (!map[inv.client_id]) map[inv.client_id] = { overdue: 0, pending: 0 };
-        map[inv.client_id].pending++;
-      }
-      setInvStatus(map);
+      // Counted server-side: fetching the invoice listing here would only ever
+      // see its first page, undercounting clients with older open invoices.
+      const res = await authFetch('/api/invoices?summary=1');
+      const { summary = {} } = await res.json();
+      setInvStatus(summary as Record<string, InvoiceSummary>);
     } catch { /* non-critical */ }
   }, [authFetch]);
 

@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, AlertTriangle } from 'lucide-react';
 import { Paginator } from '@/components/ui/paginator';
 import { useAuth } from '@/context/AuthContext';
 import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
+import { matchesTerm } from '@/lib/search';
+import { contractCode } from '@/lib/contracts';
 import type { ContractRow, ContractStatus } from '@/types/contract';
 import type { Client } from '@/types/client';
 import type { ServicePlan } from '@/types/plan';
@@ -55,6 +57,11 @@ export default function ContractsPage() {
   const [dropOpen,     setDropOpen]     = useState(false);
   const clientBoxRef = useRef<HTMLDivElement>(null);
 
+  // Contracts the selected client already holds — shown before assigning another
+  const [clientContracts, setClientContracts] = useState<ContractRow[]>([]);
+  const [loadingClientContracts, setLoadingClientContracts] = useState(false);
+  const [confirmedExtra, setConfirmedExtra] = useState(false);
+
   const load = useCallback(async (status: ContractStatus | 'all' = statusTab) => {
     setLoading(true); setError(null);
     try {
@@ -90,12 +97,30 @@ export default function ContractsPage() {
   }, []);
 
   const filteredClients = clients.filter((c) =>
-    `${c.first_name} ${c.last_name}`.toLowerCase().includes(clientSearch.toLowerCase())
+    matchesTerm(clientSearch, `${c.first_name} ${c.last_name}`)
   );
 
   function openAssign() {
     setForm({ ...EMPTY_FORM, start_date: new Date().toISOString().slice(0, 10) });
-    setFormError(null); setClientSearch(''); setDropOpen(false); setOpen(true);
+    setFormError(null); setClientSearch(''); setDropOpen(false);
+    setClientContracts([]); setConfirmedExtra(false);
+    setOpen(true);
+  }
+
+  async function selectClient(clientId: string) {
+    setForm((f) => ({ ...f, client_id: clientId }));
+    setConfirmedExtra(false);
+    setClientContracts([]);
+    if (!clientId) return;
+
+    setLoadingClientContracts(true);
+    try {
+      const res = await authFetch(`/api/contracts?client_id=${clientId}`);
+      const { contracts: data } = await res.json();
+      setClientContracts(data ?? []);
+    } finally {
+      setLoadingClientContracts(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -122,7 +147,14 @@ export default function ContractsPage() {
   }
 
   const selectedPlan = plans.find((p) => p.id === form.plan_id);
-  const canSubmit = form.client_id !== '' && form.plan_id !== '';
+
+  // Assigning a second contract is legitimate (two houses, two lines), but it has
+  // to be a deliberate choice: the agent confirms after seeing what's already there.
+  const activeClientContracts = clientContracts.filter((c) => c.status === 'active');
+  const samePlanContract = activeClientContracts.find((c) => c.plan_id === form.plan_id);
+  const needsConfirm = activeClientContracts.length > 0;
+
+  const canSubmit = form.client_id !== '' && form.plan_id !== '' && (!needsConfirm || confirmedExtra);
 
   const colHeaders = [t.contracts.colClient, t.contracts.colPlan, t.contracts.colPrice, t.contracts.colStatus, t.contracts.colDueDay, t.contracts.colStart, ''];
 
@@ -282,7 +314,7 @@ export default function ContractsPage() {
                   onChange={(e) => {
                     setClientSearch(e.target.value);
                     setDropOpen(true);
-                    if (!e.target.value) setForm((f) => ({ ...f, client_id: '' }));
+                    if (!e.target.value) selectClient('');
                   }}
                   className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15"
                 />
@@ -296,7 +328,7 @@ export default function ContractsPage() {
                           onClick={() => {
                             setClientSearch(`${c.first_name} ${c.last_name}`);
                             setDropOpen(false);
-                            setForm((f) => ({ ...f, client_id: c.id }));
+                            selectClient(c.id);
                           }}
                           className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-border/40 ${form.client_id === c.id ? 'font-medium text-primary' : 'text-popover-foreground'}`}
                         >
@@ -307,6 +339,35 @@ export default function ContractsPage() {
                   </ul>
                 )}
               </div>
+              {/* What this client already has — surfaced before assigning another */}
+              {loadingClientContracts && (
+                <p className="text-xs text-muted">{t.contracts.loadingClientContracts}</p>
+              )}
+              {!loadingClientContracts && form.client_id !== '' && clientContracts.length > 0 && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    {t.contracts.alreadyHasContracts.replace('{n}', String(clientContracts.length))}
+                  </p>
+                  <ul className="space-y-1">
+                    {clientContracts.map((c) => (
+                      <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-popover-foreground">
+                          {c.plan_name}
+                          <span className="text-muted"> · {contractCode(c.id)}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-muted">{fmtPrice(c.effective_price)}</span>
+                          <span className={`rounded-full px-1.5 py-0.5 font-medium ${STATUS_COLORS[c.status]}`}>
+                            {statusLabels[c.status]}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted">{t.contracts.planLabel} *</label>
                 <select required value={form.plan_id} onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}
@@ -341,6 +402,25 @@ export default function ContractsPage() {
                 <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2}
                   className="w-full resize-none rounded-lg border border-border bg-input px-3 py-2 text-sm text-popover-foreground outline-none focus:border-primary dark:bg-[#2c2520] dark:border-white/15" />
               </div>
+              {samePlanContract && (
+                <p className="flex items-start gap-1.5 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {t.contracts.samePlanWarning.replace('{code}', contractCode(samePlanContract.id))}
+                </p>
+              )}
+
+              {needsConfirm && (
+                <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border p-3 text-xs text-popover-foreground">
+                  <input
+                    type="checkbox"
+                    checked={confirmedExtra}
+                    onChange={(e) => setConfirmedExtra(e.target.checked)}
+                    className="mt-0.5 accent-primary"
+                  />
+                  {t.contracts.confirmExtraContract}
+                </label>
+              )}
+
               {formError && <p className="text-sm text-destructive">{formError}</p>}
               <div className="flex justify-end gap-3 pt-2">
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button>

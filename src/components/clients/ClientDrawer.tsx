@@ -7,6 +7,7 @@ import { useT } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { RecordPaymentModal } from '@/components/payments/RecordPaymentModal';
 import { generarReciboPDF } from '@/lib/utils';
+import { contractLabels, reciboPeriodos } from '@/lib/contracts';
 import type { Client } from '@/types/client';
 import type { InvoiceRow, InvoiceStatus } from '@/types/invoice';
 import type { PaymentRow } from '@/types/payment';
@@ -26,6 +27,22 @@ function fmtDate(d: string) {
 
 function fmtMonth(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('es-GT', { month: 'short', year: 'numeric' });
+}
+
+/** Which plan/contract each invoice covered by a payment belongs to. */
+function PeriodTags({ payment, className = '' }: { payment: PaymentRow; className?: string }) {
+  if (payment.periods.length === 0) return null;
+  const labels = contractLabels(payment.periods);
+  return (
+    <div className={`flex flex-wrap gap-1 ${className}`}>
+      {payment.periods.map((p, i) => (
+        <span key={i} className="rounded bg-border/60 px-1.5 py-0.5 text-xs text-muted">
+          <span className="text-popover-foreground">{labels[p.contract_id] || '—'}</span>
+          {' · '}{fmtMonth(p.reference_month)}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -281,7 +298,7 @@ export function ClientDrawer({ client, open, onClose, onClientUpdated }: ClientD
         {/* ── CTA bar ────────────────────────────────────────────────── */}
         <div className="shrink-0 border-b border-border px-4 py-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Button className="gap-2" onClick={() => setPayOpen(true)}>
+            <Button className="gap-2" onClick={() => { setPayOpen(true); onClose(); }}>
               <CreditCard className="h-4 w-4" />
               {t.clients.drawerRecordPayment}
             </Button>
@@ -486,15 +503,7 @@ export function ClientDrawer({ client, open, onClose, onClientUpdated }: ClientD
                             <span className="text-sm font-semibold text-primary">{fmtCurrency(p.total_amount)}</span>
                           </div>
                           <p className="mt-0.5 text-sm text-muted">{PAYMENT_METHOD_LABELS[p.payment_method]}</p>
-                          {p.reference_months.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {p.reference_months.map((m) => (
-                                <span key={m} className="rounded bg-border/60 px-1.5 py-0.5 text-xs text-muted">
-                                  {fmtMonth(m)}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          <PeriodTags payment={p} className="mt-1" />
                         </div>
                         <button
                           title="Descargar recibo"
@@ -509,7 +518,7 @@ export function ClientDrawer({ client, open, onClose, onClientUpdated }: ClientD
                                 fecha: p.payment_date,
                                 notas: p.notes ?? undefined,
                                 id: p.id,
-                                meses: p.reference_months,
+                                periodos: reciboPeriodos(p),
                               });
                             } finally {
                               setDownloadingId(null);
@@ -543,17 +552,9 @@ export function ClientDrawer({ client, open, onClose, onClientUpdated }: ClientD
                           <td className="px-4 py-2.5 text-muted">{PAYMENT_METHOD_LABELS[p.payment_method]}</td>
                           <td className="whitespace-nowrap px-4 py-2.5 text-muted">{fmtCurrency(p.total_amount)}</td>
                           <td className="px-4 py-2.5">
-                            {p.reference_months.length === 0 ? (
-                              <span className="text-xs text-muted">—</span>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {p.reference_months.map((m) => (
-                                  <span key={m} className="rounded bg-border/60 px-1.5 py-0.5 text-xs text-muted">
-                                    {fmtMonth(m)}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                            {p.periods.length === 0
+                              ? <span className="text-xs text-muted">—</span>
+                              : <PeriodTags payment={p} />}
                           </td>
                           <td className="px-2 py-2.5">
                             <button
@@ -569,7 +570,7 @@ export function ClientDrawer({ client, open, onClose, onClientUpdated }: ClientD
                                     fecha: p.payment_date,
                                     notas: p.notes ?? undefined,
                                     id: p.id,
-                                    meses: p.reference_months,
+                                    periodos: reciboPeriodos(p),
                                   });
                                 } finally {
                                   setDownloadingId(null);

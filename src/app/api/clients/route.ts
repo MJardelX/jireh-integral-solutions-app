@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
+import { matchesTerm } from '@/lib/search';
 
 export async function GET(request: NextRequest) {
   if (!request.headers.get('x-user-id')) {
@@ -15,16 +16,19 @@ export async function GET(request: NextRequest) {
 
   if (active === 'true') q = q.eq('is_active', true);
   else if (active === 'false') q = q.eq('is_active', false);
-  if (search) {
-    q = q.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
-    );
-  }
 
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ clients: data });
+  // Filtered in JS (not with `ilike`) so the search ignores accents:
+  // "angela" matches "Ángela" and the other way around.
+  const clients = search
+    ? (data ?? []).filter((c) =>
+        matchesTerm(search, c.first_name, c.last_name, `${c.first_name} ${c.last_name}`, c.email, c.phone)
+      )
+    : data;
+
+  return NextResponse.json({ clients });
 }
 
 export async function POST(request: NextRequest) {

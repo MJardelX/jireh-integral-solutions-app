@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   const status   = searchParams.get('status');
   const month    = searchParams.get('month');     // 'YYYY-MM'
   const clientId = searchParams.get('client_id');
+  const summary  = searchParams.get('summary');   // '1' → open-invoice counts per client
   const page     = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const limit    = 50;
 
@@ -19,6 +20,33 @@ export async function GET(request: NextRequest) {
   // Auto-mark pending invoices whose due_date has passed
   const today = new Date().toISOString().slice(0, 10);
   await db.from('invoices').update({ status: 'overdue' }).eq('status', 'pending').lt('due_date', today);
+
+  // Open-invoice counts per client (badges on the clients table). Counted over the
+  // whole table — reading the paginated listing would only ever count the first page.
+  if (summary) {
+    const counts: Record<string, { overdue: number; pending: number }> = {};
+    const CHUNK = 1000;
+    for (let from = 0; ; from += CHUNK) {
+      const { data, error } = await db
+        .from('invoices')
+        .select('status, contracts ( client_id )')
+        .in('status', ['overdue', 'pending'])
+        .range(from, from + CHUNK - 1);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      for (const inv of data ?? []) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cid = (inv.contracts as any)?.client_id as string | undefined;
+        if (!cid) continue;
+        if (!counts[cid]) counts[cid] = { overdue: 0, pending: 0 };
+        if (inv.status === 'overdue') counts[cid].overdue++;
+        else counts[cid].pending++;
+      }
+
+      if (!data || data.length < CHUNK) break;
+    }
+    return NextResponse.json({ summary: counts });
+  }
 
   const JOIN = `
     *,
@@ -54,15 +82,28 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  // Client-specific queries (used by payment modals) — no pagination
+  // Client-specific queries (used by the client drawer and payment modals) — no pagination.
+  // Filter by the client's contracts in the query itself: filtering afterwards in JS would
+  // silently drop the client's older invoices once the table grows past the row limit.
   if (clientId) {
-    let q = db.from('invoices').select(JOIN).order('due_date', { ascending: false }).limit(500);
+    const { data: contracts, error: cErr } = await db
+      .from('contracts')
+      .select('id')
+      .eq('client_id', clientId);
+    if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+
+    const contractIds = (contracts ?? []).map((c: { id: string }) => c.id);
+    if (contractIds.length === 0) return NextResponse.json({ invoices: [] });
+
+    let q = db.from('invoices').select(JOIN)
+      .in('contract_id', contractIds)
+      .order('due_date', { ascending: false })
+      .limit(500);
     if (status && status !== 'all') q = q.eq('status', status);
     if (month) q = q.gte('reference_month', `${month}-01`).lte('reference_month', `${month}-31`);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const rows = (data ?? []).map(mapRow).filter((r) => r.client_id === clientId);
-    return NextResponse.json({ invoices: rows });
+    return NextResponse.json({ invoices: (data ?? []).map(mapRow) });
   }
 
   // Main listing — server-side pagination with count

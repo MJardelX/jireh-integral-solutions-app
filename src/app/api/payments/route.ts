@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
-import type { PaymentMethod, PaymentRow, NewPaymentItem } from '@/types/payment';
+import { matchesTerm } from '@/lib/search';
+import type { PaymentMethod, PaymentRow, PaymentPeriod, NewPaymentItem } from '@/types/payment';
 
 const VALID_METHODS: PaymentMethod[] = ['efectivo', 'transferencia', 'tarjeta_de_credito', 'tarjeta_de_debito'];
 
@@ -24,26 +25,37 @@ export async function GET(request: NextRequest) {
     *,
     clients ( first_name, last_name ),
     profiles ( full_name ),
-    payment_items ( id, invoices ( reference_month ) )
+    payment_items (
+      id,
+      amount_applied,
+      invoices (
+        reference_month,
+        contract_id,
+        contracts ( service_plans ( name ) )
+      )
+    )
   `;
 
   // Resolve client name search to IDs upfront (referenced-table OR filters don't
   // exclude parent rows — they only filter the embedded data, leaving blank names)
   let matchedClientIds: string[] | null = null;
   if (clientName) {
-    const term = `%${clientName}%`;
-    const { data: matched } = await db
+    // Matched in JS (not with `ilike`) so the search ignores accents:
+    // "angela" matches "Ángela" and the other way around.
+    const { data: allClients } = await db
       .from('clients')
-      .select('id')
-      .or(`first_name.ilike.${term},last_name.ilike.${term}`);
-    matchedClientIds = (matched ?? []).map((c: { id: string }) => c.id);
+      .select('id, first_name, last_name');
+    matchedClientIds = (allClients ?? [])
+      .filter((c: { first_name: string; last_name: string }) =>
+        matchesTerm(clientName, c.first_name, c.last_name, `${c.first_name} ${c.last_name}`)
+      )
+      .map((c: { id: string }) => c.id);
     // No clients match → return empty immediately
     if (matchedClientIds.length === 0) {
       return NextResponse.json({ payments: [], total: 0, page, limit });
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function mapRow(p: any): PaymentRow {
     return {
       id:             p.id,
@@ -57,8 +69,19 @@ export async function GET(request: NextRequest) {
       client_name:    p.clients ? `${p.clients.first_name} ${p.clients.last_name}` : '',
       recorded_by:    p.profiles?.full_name ?? null,
       invoice_count:     Array.isArray(p.payment_items) ? p.payment_items.length : 0,
-      reference_months:  Array.isArray(p.payment_items)
-        ? p.payment_items.map((item: any) => item.invoices?.reference_month).filter(Boolean)
+      // One entry per invoice covered, carrying which contract/plan it belongs to
+      // so receipts and listings stay unambiguous for multi-contract clients.
+      periods: Array.isArray(p.payment_items)
+        ? p.payment_items
+            .filter((item: any) => item.invoices)
+            .map((item: any) => ({
+              contract_id:     item.invoices.contract_id,
+              plan_name:       item.invoices.contracts?.service_plans?.name ?? '',
+              reference_month: item.invoices.reference_month,
+              amount_applied:  Number(item.amount_applied),
+            }))
+            .sort((a: PaymentPeriod, b: PaymentPeriod) =>
+              a.reference_month.localeCompare(b.reference_month))
         : [],
     };
   }

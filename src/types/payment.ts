@@ -18,11 +18,19 @@ export interface Payment {
   created_at: string;
 }
 
+/** One invoice covered by a payment, tied to the contract it was billed under. */
+export interface PaymentPeriod {
+  contract_id: string;
+  plan_name: string;
+  reference_month: string;
+  amount_applied: number;
+}
+
 export interface PaymentRow extends Payment {
   client_name: string;
   recorded_by: string | null;
   invoice_count: number;
-  reference_months: string[];
+  periods: PaymentPeriod[];
 }
 
 export interface NewPaymentItem {
